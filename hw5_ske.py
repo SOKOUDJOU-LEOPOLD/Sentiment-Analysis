@@ -51,7 +51,20 @@ class Vocabulary:
 
             
     def build_vocab(self):
-        pass
+        """
+        Build vocabulary from word counts, keeping most frequent words
+        """
+        # Sort words by frequency (descending)
+        sorted_words = sorted(self.word_count.items(), key=lambda x: x[1], reverse=True)
+        
+        # Add words until we reach max_size
+        for word, count in sorted_words:
+            if self.size >= self.max_size:
+                break
+            if word not in self.word2idx:
+                self.word2idx[word] = self.size
+                self.idx2word[self.size] = word
+                self.size += 1        
                 
     def text_to_indices(self, tokens, max_len, model_type='lstm'):
         pass
