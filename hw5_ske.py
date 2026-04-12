@@ -101,7 +101,47 @@ class IMDBDataset(Dataset):
     A dataset for the IMDB dataset
     """
     def __init__(self, dataframe, vocabulary, max_len, is_training=True, model_type='lstm'):
-        pass
+        """
+            Initialize the dataset
+    
+            Args:
+                dataframe: pandas DataFrame with 'text' and 'label' columns
+                vocabulary: Vocabulary object for converting tokens to indices
+                max_len: Maximum sequence length
+                is_training: Whether this is training data (not used here but could be useful)
+                model_type: 'lstm' or 'transformer'
+
+        """
+        self.dataframe = dataframe
+        self.vocabulary = vocabulary
+        self.max_len = max_len
+        self.is_training = is_training
+        self.model_type = model_type
+        
+        # Preprocess all texts and store indices
+        self.texts = []
+        self.labels = []
+        self.attention_masks = []
+        
+        for idx in range(len(dataframe)):
+            # Get text and label from dataframe
+            text = dataframe.iloc[idx]['text']
+            label = dataframe.iloc[idx]['label']
+            
+            # Tokenize text
+            tokens = preprocess_text(text)
+            
+            # Convert to indices
+            indices = vocabulary.text_to_indices(tokens, max_len, model_type)
+            
+            self.texts.append(indices)
+            self.labels.append(label)
+            
+            # Create attention mask (1 for real tokens, 0 for padding)
+            if model_type == 'transformer':
+                # Count non-padding tokens
+                attention_mask = [1 if idx != 0 else 0 for idx in indices]
+                self.attention_masks.append(attention_mask)        
             
     def __len__(self):
         pass
