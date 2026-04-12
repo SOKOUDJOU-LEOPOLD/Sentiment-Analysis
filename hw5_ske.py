@@ -67,7 +67,34 @@ class Vocabulary:
                 self.size += 1        
                 
     def text_to_indices(self, tokens, max_len, model_type='lstm'):
-        pass
+        """
+        Convert tokens to indices with padding
+        
+        For LSTM: just pad to max_len
+        For Transformer: add <cls> token at the beginning
+        """
+        indices = []
+        
+        # For transformer, add <cls> token at the beginning
+        if model_type == 'transformer':
+            indices.append(self.word2idx["<cls>"])
+        
+        # Convert tokens to indices
+        for token in tokens:
+            if token in self.word2idx:
+                indices.append(self.word2idx[token])
+            else:
+                indices.append(self.word2idx["<unk>"])  # Handle unknown words
+        
+        # Truncate if too long
+        if len(indices) > max_len:
+            indices = indices[:max_len]
+        
+        # Pad if too short
+        while len(indices) < max_len:
+            indices.append(self.word2idx["<pad>"])
+        
+        return indices        
 
 class IMDBDataset(Dataset):
     """
