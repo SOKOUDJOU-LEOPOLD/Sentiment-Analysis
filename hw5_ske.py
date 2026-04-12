@@ -41,7 +41,14 @@ class Vocabulary:
         self.size = 3  # Start with pad, unk, and cls tokens
         
     def add_word(self, word):
-        pass
+        """
+        Add a word to the word count disctionary
+        """
+        if word in self.word_count:
+            self.word_count[word] += 1
+        else:
+            self.word_count[word] = 1        
+
             
     def build_vocab(self):
         pass
