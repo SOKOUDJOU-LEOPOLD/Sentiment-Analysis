@@ -72,6 +72,10 @@ class Vocabulary:
         
         For LSTM: just pad to max_len
         For Transformer: add <cls> token at the beginning
+
+        NB:
+        -> in LSTM: punctuation should be converted to <unk>
+        -> in Transformer: punctuation should be skipped
         """
         indices = []
         
@@ -81,14 +85,23 @@ class Vocabulary:
         
         # Convert tokens to indices
         for token in tokens:
+            # Check length FIRST
+            if len(indices) >= max_len:
+                break
+            
+            # Skip empty tokens
+            if not token:
+                continue
+
+            # Skip punctuation-only tokens
+            if model_type == "transformer":
+                if all(char in string.punctuation for char in token):
+                    continue
+                
             if token in self.word2idx:
                 indices.append(self.word2idx[token])
             else:
-                indices.append(self.word2idx["<unk>"])  # Handle unknown words
-        
-        # Truncate if too long
-        if len(indices) > max_len:
-            indices = indices[:max_len]
+                indices.append(self.word2idx["<unk>"])
         
         # Pad if too short
         while len(indices) < max_len:
