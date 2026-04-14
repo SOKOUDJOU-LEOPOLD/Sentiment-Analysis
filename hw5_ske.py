@@ -227,7 +227,30 @@ class LSTM(nn.Module):
     
 # Positional Encoding for Transformer
 class PositionalEncoding(nn.Module):
-    pass
+    def __init__(self, d_model=256, max_len=512, dropout=0.1):
+        super(PositionalEncoding, self).__init__()
+        
+        self.dropout = nn.Dropout(p=dropout)
+        
+        # Create positional encoding matrix
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        
+        pe[:, 0::2] = torch.sin(position * div_term)  # Even indices
+        pe[:, 1::2] = torch.cos(position * div_term)  # Odd indices
+        
+        # Add batch dimension: (1, max_len, d_model)
+        pe = pe.unsqueeze(0)
+        
+        # Register as buffer (not a parameter, but should be saved with model)
+        self.register_buffer('pe', pe)
+        
+    def forward(self, x):
+        # x shape: (batch_size, seq_len, d_model)
+        # Add positional encoding to input
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
 
 # Transformer Encoder
 class TransformerEncoder(nn.Module):
