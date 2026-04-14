@@ -178,7 +178,52 @@ class IMDBDataset(Dataset):
         
 # LSTM model
 class LSTM(nn.Module):
-    pass
+    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=256, 
+                 output_dim=1, n_layers=1, bidirectional=False, dropout=0.5, pad_idx=0):
+        super(LSTM, self).__init__()
+        
+        # Embedding layer
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=pad_idx)
+        
+        # LSTM layer
+        self.lstm = nn.LSTM(
+            embedding_dim,
+            hidden_dim,
+            num_layers=n_layers,
+            bidirectional=bidirectional,
+            dropout=dropout if n_layers > 1 else 0,
+            batch_first=True
+        )
+        
+        # Fully connected layer
+        fc_input_dim = hidden_dim * 2 if bidirectional else hidden_dim
+        self.fc = nn.Linear(fc_input_dim, output_dim)
+        
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, text):
+        # text: (batch_size, seq_len)
+        
+        # Embed
+        embedded = self.dropout(self.embedding(text))
+        # embedded: (batch_size, seq_len, embedding_dim)
+        
+        # LSTM
+        output, (hidden, cell) = self.lstm(embedded)
+        # output: (batch_size, seq_len, hidden_dim * num_directions)
+        
+        # Get last hidden state
+        if self.lstm.bidirectional:
+            hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
+        else:
+            hidden = hidden[-1,:,:]
+        
+        # Dropout and FC
+        hidden = self.dropout(hidden)
+        output = self.fc(hidden)
+        
+        return output
     
 # Positional Encoding for Transformer
 class PositionalEncoding(nn.Module):
