@@ -125,21 +125,22 @@ class IMDBDataset(Dataset):
                 model_type: 'lstm' or 'transformer'
 
         """
-        self.dataframe = dataframe
         self.vocabulary = vocabulary
         self.max_len = max_len
         self.is_training = is_training
         self.model_type = model_type
         
-        # Preprocess all texts and store indices
+        # Reset index to avoid indexing issues
+        self.dataframe = dataframe.reset_index(drop=True)
+        
+        # Preprocess all texts and store
         self.texts = []
         self.labels = []
         self.attention_masks = []
         
-        for idx in range(len(dataframe)):
-            # Get text and label from dataframe
-            text = dataframe.iloc[idx]['text']
-            label = dataframe.iloc[idx]['label']
+        for idx in range(len(self.dataframe)):
+            text = self.dataframe.iloc[idx]['text']
+            label = self.dataframe.iloc[idx]['label']
             
             # Tokenize text
             tokens = preprocess_text(text)
@@ -150,11 +151,9 @@ class IMDBDataset(Dataset):
             self.texts.append(indices)
             self.labels.append(label)
             
-            # Create attention mask (1 for real tokens, 0 for padding)
-            if model_type == 'transformer':
-                # Count non-padding tokens
-                attention_mask = [1 if idx != 0 else 0 for idx in indices]
-                self.attention_masks.append(attention_mask)        
+            # Always create attention mask
+            attention_mask = [1 if token_idx != 0 else 0 for token_idx in indices]
+            self.attention_masks.append(attention_mask)      
             
     def __len__(self):
         """Return the total number of samples"""
