@@ -167,13 +167,13 @@ class IMDBDataset(Dataset):
         For Transformer: returns (text_tensor, attention_mask_tensor, label_tensor)
         """
         text_tensor = torch.tensor(self.texts[idx], dtype=torch.long)
-        label_tensor = torch.tensor(self.labels[idx], dtype=torch.long)
+        # Make label 2D: shape (1,) so batched becomes (N, 1)
+        label_tensor = torch.tensor([self.labels[idx]], dtype=torch.long)
         
         if self.model_type == 'transformer':
             attention_mask_tensor = torch.tensor(self.attention_masks[idx], dtype=torch.long)
             return text_tensor, attention_mask_tensor, label_tensor
         else:
-            # LSTM
             return text_tensor, label_tensor
         
 # LSTM model
