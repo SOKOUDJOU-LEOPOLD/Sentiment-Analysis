@@ -254,7 +254,71 @@ class PositionalEncoding(nn.Module):
 
 # Transformer Encoder
 class TransformerEncoder(nn.Module):
-    pass
+    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=256, 
+                 output_dim=1, n_layers=2, n_heads=8, dropout=0.1, pad_idx=0, max_len=512):
+        super(TransformerEncoder, self).__init__()
+        
+        self.embedding_dim = embedding_dim
+        
+        # Embedding layer
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=pad_idx)
+        
+        # Positional encoding
+        self.positional_encoding = PositionalEncoding(embedding_dim, max_len, dropout)
+        
+        # Transformer encoder layer
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embedding_dim,
+            nhead=n_heads,
+            dim_feedforward=hidden_dim,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Stack multiple encoder layers
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        
+        # Fully connected output layer
+        self.fc = nn.Linear(embedding_dim, output_dim)
+        
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, text, attention_mask=None):
+        # text shape: (batch_size, seq_len)
+        # attention_mask shape: (batch_size, seq_len) - 1 for real tokens, 0 for padding
+        
+        # Create key_padding_mask for transformer
+        # PyTorch transformer expects: True for positions to IGNORE (padding)
+        # Our mask has: 1 for real tokens, 0 for padding
+        # So we need to invert: key_padding_mask = (attention_mask == 0)
+        if attention_mask is not None:
+            key_padding_mask = (attention_mask == 0)
+        else:
+            key_padding_mask = None
+        
+        # Embedding
+        # embedded shape: (batch_size, seq_len, embedding_dim)
+        embedded = self.embedding(text) * math.sqrt(self.embedding_dim)
+        
+        # Add positional encoding
+        embedded = self.positional_encoding(embedded)
+        
+        # Transformer encoder
+        # output shape: (batch_size, seq_len, embedding_dim)
+        output = self.transformer_encoder(embedded, src_key_padding_mask=key_padding_mask)
+        
+        # Use the [CLS] token (first token) for classification
+        # cls_output shape: (batch_size, embedding_dim)
+        cls_output = output[:, 0, :]
+        
+        # Pass through fully connected layer
+        output = self.dropout(cls_output)
+        output = self.fc(output)
+        
+        # output shape: (batch_size, output_dim)
+        return output
+
 
 def load_and_preprocess_data(data_path, data_type='train', model_type='lstm', shared_vocab=None):
     """
