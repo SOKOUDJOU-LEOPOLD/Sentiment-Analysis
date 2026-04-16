@@ -445,7 +445,209 @@ def evaluate(model, iterator, criterion, device, model_type='lstm'):
 
 
 def main():
-    pass
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='Train Sentiment Analysis Models')
+    
+    # Model selection
+    parser.add_argument('--model', type=str, required=True, choices=['lstm', 'transformer'],
+                        help='Model type to train: lstm or transformer')
+    
+    # Data arguments
+    parser.add_argument('--data_path', type=str, default='train.parquet',
+                        help='Path to training data')
+    parser.add_argument('--val_split', type=float, default=0.1,
+                        help='Validation split ratio')
+    
+    # Model hyperparameters
+    parser.add_argument('--vocab_size', type=int, default=25000,
+                        help='Maximum vocabulary size')
+    parser.add_argument('--embedding_dim', type=int, default=256,
+                        help='Embedding dimension')
+    parser.add_argument('--hidden_dim', type=int, default=256,
+                        help='Hidden dimension')
+    parser.add_argument('--n_layers', type=int, default=2,
+                        help='Number of layers')
+    parser.add_argument('--dropout', type=float, default=0.5,
+                        help='Dropout rate')
+    parser.add_argument('--bidirectional', action='store_true',
+                        help='Use bidirectional LSTM')
+    parser.add_argument('--n_heads', type=int, default=8,
+                        help='Number of attention heads (transformer only)')
+    
+    # Training hyperparameters
+    parser.add_argument('--epochs', type=int, default=10,
+                        help='Number of epochs')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='Batch size')
+    parser.add_argument('--learning_rate', type=float, default=0.001,
+                        help='Learning rate')
+    parser.add_argument('--max_len', type=int, default=256,
+                        help='Maximum sequence length')
+    
+    # Other arguments
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed')
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help='Output directory for saving models and logs')
+    
+    args = parser.parse_args()
+    
+    # Set random seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    
+    # Create output directory
+    if args.output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.output_dir = f"{args.model}_run_{timestamp}"
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Save configuration
+    with open(os.path.join(args.output_dir, 'config.json'), 'w') as f:
+        json.dump(vars(args), f, indent=2)
+    
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"{'='*60}")
+    print(f"Training {args.model.upper()} Model")
+    print(f"{'='*60}")
+    print(f"Device: {device}")
+    print(f"Output directory: {args.output_dir}")
+    
+    # Load data
+    print("\nLoading data...")
+    df = pd.read_parquet(args.data_path)
+    print(f"Total samples: {len(df)}")
+    
+    # Split into train and validation
+    train_df, val_df = train_test_split(df, test_size=args.val_split, random_state=args.seed)
+    print(f"Training samples: {len(train_df)}")
+    print(f"Validation samples: {len(val_df)}")
+    
+    # Build vocabulary
+    print("\nBuilding vocabulary...")
+    vocab = Vocabulary(max_size=args.vocab_size)
+    for idx in range(len(train_df)):
+        text = train_df.iloc[idx]['text']
+        tokens = preprocess_text(text)
+        for token in tokens:
+            vocab.add_word(token)
+    vocab.build_vocab()
+    print(f"Vocabulary size: {vocab.size}")
+    
+    # Create datasets
+    print("\nCreating datasets...")
+    train_dataset = IMDBDataset(train_df, vocab, args.max_len, True, args.model)
+    val_dataset = IMDBDataset(val_df, vocab, args.max_len, False, args.model)
+    
+    # Create dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    
+    # Create model
+    print(f"\nCreating {args.model.upper()} model...")
+    if args.model == 'lstm':
+        model = LSTM(
+            vocab_size=vocab.size,
+            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
+            output_dim=1,
+            n_layers=args.n_layers,
+            bidirectional=args.bidirectional,
+            dropout=args.dropout,
+            pad_idx=0
+        )
+        model_save_name = 'lstm.pt'
+    else:
+        model = TransformerEncoder(
+            vocab_size=vocab.size,
+            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
+            output_dim=1,
+            n_layers=args.n_layers,
+            n_heads=args.n_heads,
+            dropout=args.dropout,
+            pad_idx=0,
+            max_len=args.max_len + 1  # +1 for CLS token
+        )
+        model_save_name = 'transformer.pt'
+    
+    model = model.to(device)
+    
+    # Print model info
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+    
+    # Optimizer and loss
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    criterion = nn.BCEWithLogitsLoss()
+    
+    # Training loop
+    print(f"\n{'='*60}")
+    print("Starting training...")
+    print(f"{'='*60}")
+    
+    best_valid_loss = float('inf')
+    best_valid_acc = 0.0
+    history = {
+        'train_loss': [],
+        'train_acc': [],
+        'val_loss': [],
+        'val_acc': []
+    }
+    
+    for epoch in range(args.epochs):
+        print(f"\nEpoch {epoch+1}/{args.epochs}")
+        print("-" * 40)
+        
+        # Train
+        train_loss, train_acc = train(model, train_loader, optimizer, criterion, device, args.model)
+        
+        # Evaluate
+        valid_loss, valid_acc = evaluate(model, val_loader, criterion, device, args.model)
+        
+        # Save history
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['val_loss'].append(valid_loss)
+        history['val_acc'].append(valid_acc)
+        
+        print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc*100:.2f}%")
+        print(f"Val Loss:   {valid_loss:.4f} | Val Acc:   {valid_acc*100:.2f}%")
+        
+        # Save best model based on validation loss
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            best_valid_acc = valid_acc
+            
+            # Save to output directory
+            torch.save(model.state_dict(), os.path.join(args.output_dir, 'best_model.pt'))
+            
+            # Save to required filename (lstm.pt or transformer.pt)
+            torch.save(model.state_dict(), model_save_name)
+            
+            print(f"*** Best model saved! (Val Acc: {valid_acc*100:.2f}%) ***")
+    
+    # Save final model
+    torch.save(model.state_dict(), os.path.join(args.output_dir, 'final_model.pt'))
+    
+    # Save training history
+    with open(os.path.join(args.output_dir, 'history.json'), 'w') as f:
+        json.dump(history, f, indent=2)
+    
+    # Print summary
+    print(f"\n{'='*60}")
+    print("Training Complete!")
+    print(f"{'='*60}")
+    print(f"Best Validation Loss: {best_valid_loss:.4f}")
+    print(f"Best Validation Accuracy: {best_valid_acc*100:.2f}%")
+    print(f"Models saved to: {args.output_dir}/")
+    print(f"Final model also saved as: {model_save_name}")
+    print(f"{'='*60}")
+
 
 if __name__ == "__main__":
     main()
+
