@@ -408,7 +408,41 @@ def train(model, iterator, optimizer, criterion, device, model_type='lstm'):
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
 def evaluate(model, iterator, criterion, device, model_type='lstm'):
-    pass
+    """
+    Evaluate the model
+    """
+    model.eval()
+    
+    epoch_loss = 0
+    epoch_acc = 0
+    
+    with torch.no_grad():
+        for batch in tqdm(iterator, desc='Evaluating', leave=False):
+            if model_type == 'transformer':
+                text, attention_mask, labels = batch
+                text = text.to(device)
+                attention_mask = attention_mask.to(device)
+                labels = labels.to(device).float()
+                
+                predictions = model(text, attention_mask)
+            else:
+                text, labels = batch
+                text = text.to(device)
+                labels = labels.to(device).float()
+                
+                predictions = model(text)
+            
+            loss = criterion(predictions, labels)
+            
+            rounded_preds = torch.round(torch.sigmoid(predictions))
+            correct = (rounded_preds == labels).float()
+            acc = correct.sum() / len(labels)
+            
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+    
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
 
 def main():
     pass
