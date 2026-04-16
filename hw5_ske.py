@@ -109,6 +109,7 @@ class Vocabulary:
         
         return indices        
 
+import sys
 class IMDBDataset(Dataset):
     """
     A dataset for the IMDB dataset
@@ -370,7 +371,41 @@ def load_and_preprocess_data(data_path, data_type='train', model_type='lstm', sh
 
 
 def train(model, iterator, optimizer, criterion, device, model_type='lstm'):
-    pass
+    model.train()
+    
+    epoch_loss = 0
+    epoch_acc = 0
+    
+    for batch in tqdm(iterator, desc='Training', leave=False):
+        optimizer.zero_grad()
+        
+        if model_type == 'transformer':
+            text, attention_mask, labels = batch
+            text = text.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device).float()
+            
+            predictions = model(text, attention_mask)
+        else:
+            text, labels = batch
+            text = text.to(device)
+            labels = labels.to(device).float()
+            
+            predictions = model(text)
+        
+        loss = criterion(predictions, labels)
+        
+        rounded_preds = torch.round(torch.sigmoid(predictions))
+        correct = (rounded_preds == labels).float()
+        acc = correct.sum() / len(labels)
+        
+        loss.backward()
+        optimizer.step()
+        
+        epoch_loss += loss.item()
+        epoch_acc += acc.item()
+    
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
 def evaluate(model, iterator, criterion, device, model_type='lstm'):
     pass
