@@ -334,16 +334,16 @@ def load_and_preprocess_data(data_path, data_type='train', model_type='lstm', sh
         data_loader: DataLoader for the specified data type
         vocab: Vocabulary object (only returned for train data)
     """
+    print(f"!!! load_and_preprocess_data: data_type={data_type}, model_type={model_type}", file=sys.stderr)
+    
     MAX_VOCAB_SIZE = 25000
     MAX_LEN = 256
     BATCH_SIZE = 32
-    VAL_SPLIT = 0.1
     
-    # Load data
     df = pd.read_parquet(data_path)
+    print(f"!!! Loaded {len(df)} rows", file=sys.stderr)
     
     if data_type == 'train':
-        # Create vocabulary
         vocab = Vocabulary(max_size=MAX_VOCAB_SIZE)
         
         for idx in range(len(df)):
@@ -354,26 +354,19 @@ def load_and_preprocess_data(data_path, data_type='train', model_type='lstm', sh
         
         vocab.build_vocab()
         
-        # Split into train and validation
-        train_df, val_df = train_test_split(df, test_size=VAL_SPLIT, random_state=42)
+        dataset = IMDBDataset(df, vocab, MAX_LEN, True, model_type)
+        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
         
-        # Create train dataset and loader
-        train_dataset = IMDBDataset(train_df, vocab, MAX_LEN, True, model_type)
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-        
-        # Create validation dataset and loader
-        val_dataset = IMDBDataset(val_df, vocab, MAX_LEN, False, model_type)
-        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-        
-        # You could return val_loader as well, or store it differently
-        # For now, returning just train_loader to match expected interface
-        return train_loader, vocab
+        print(f"!!! Returning train: dataloader + vocab", file=sys.stderr)
+        return dataloader, vocab
         
     else:
         vocab = shared_vocab
         dataset = IMDBDataset(df, vocab, MAX_LEN, False, model_type)
         dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-        return dataloader    
+        
+        print(f"!!! Returning test: dataloader only", file=sys.stderr)
+        return dataloader 
 
 
 def train(model, iterator, optimizer, criterion, device, model_type='lstm'):
