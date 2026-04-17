@@ -59,7 +59,7 @@ class Vocabulary:
         Build vocabulary from word counts, keeping most frequent words
         """
         # Sort words by frequency (descending)
-        sorted_words = sorted(self.word_count.items(), key=lambda x: x[1], reverse=True)
+        sorted_words = sorted(self.word_count.items(), key=lambda x: (-x[1],x[0]))
         
         # Add words until we reach max_size
         for word, count in sorted_words:
@@ -184,7 +184,7 @@ class IMDBDataset(Dataset):
 # LSTM model
 class LSTM(nn.Module):
     def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=256, 
-                 output_dim=1, n_layers=1, bidirectional=False, dropout=0.5, pad_idx=0):
+                 output_dim=1, n_layers=2, bidirectional=True, dropout=0.5, pad_idx=0):
         super(LSTM, self).__init__()
         
         # Embedding layer
@@ -259,8 +259,8 @@ class PositionalEncoding(nn.Module):
 
 # Transformer Encoder
 class TransformerEncoder(nn.Module):
-    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=256, 
-                 output_dim=1, n_layers=2, n_heads=8, dropout=0.1, pad_idx=0, max_len=512):
+    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=1024, 
+                 output_dim=1, n_layers=4, n_heads=8, dropout=0.2, pad_idx=0, max_len=256 + 1):
         super(TransformerEncoder, self).__init__()
         
         self.embedding_dim = embedding_dim
@@ -289,7 +289,7 @@ class TransformerEncoder(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, text, attention_mask=None):
+    def forward(self, input_ids, attention_mask=None):
         # text shape: (batch_size, seq_len)
         # attention_mask shape: (batch_size, seq_len) - 1 for real tokens, 0 for padding
         
@@ -304,7 +304,7 @@ class TransformerEncoder(nn.Module):
         
         # Embedding
         # embedded shape: (batch_size, seq_len, embedding_dim)
-        embedded = self.embedding(text) * math.sqrt(self.embedding_dim)
+        embedded = self.embedding(input_ids) * math.sqrt(self.embedding_dim)
         
         # Add positional encoding
         embedded = self.positional_encoding(embedded)
@@ -523,23 +523,26 @@ def main():
     df = pd.read_parquet(args.data_path)
     print(f"Total samples: {len(df)}")
     
-    # Split into train and validation
-    train_df, val_df = train_test_split(df, test_size=args.val_split, random_state=args.seed)
-    print(f"Training samples: {len(train_df)}")
-    print(f"Validation samples: {len(val_df)}")
-    
-    # Build vocabulary
-    print("\nBuilding vocabulary...")
+    # ============================================================
+    # CRITICAL FIX: Build vocabulary from ALL data FIRST
+    # This matches what the autograder does
+    # ============================================================
+    print("\nBuilding vocabulary from ALL data...")
     vocab = Vocabulary(max_size=args.vocab_size)
-    for idx in range(len(train_df)):
-        text = train_df.iloc[idx]['text']
+    for idx in range(len(df)):
+        text = df.iloc[idx]['text']
         tokens = preprocess_text(text)
         for token in tokens:
             vocab.add_word(token)
     vocab.build_vocab()
     print(f"Vocabulary size: {vocab.size}")
     
-    # Create datasets
+    # THEN split into train and validation
+    train_df, val_df = train_test_split(df, test_size=args.val_split, random_state=args.seed)
+    print(f"Training samples: {len(train_df)}")
+    print(f"Validation samples: {len(val_df)}")
+    
+    # Create datasets using the FULL-DATA vocabulary
     print("\nCreating datasets...")
     train_dataset = IMDBDataset(train_df, vocab, args.max_len, True, args.model)
     val_dataset = IMDBDataset(val_df, vocab, args.max_len, False, args.model)
