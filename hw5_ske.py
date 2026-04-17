@@ -16,6 +16,13 @@ import os
 import json
 from datetime import datetime
 
+# NEW: Ensure NLTK resources are downloaded silently for the Autograder environment
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
+
 def preprocess_text(text):
     """
     Clean and tokenize text
@@ -259,8 +266,8 @@ class PositionalEncoding(nn.Module):
 
 # Transformer Encoder
 class TransformerEncoder(nn.Module):
-    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=1024, 
-                 output_dim=1, n_layers=4, n_heads=8, dropout=0.2, pad_idx=0, max_len=256 + 1):
+    def __init__(self, vocab_size=25000, embedding_dim=512, hidden_dim=2048, 
+                 output_dim=1, n_layers=6, n_heads=8, dropout=0.1, pad_idx=0, max_len=512 + 1):
         super(TransformerEncoder, self).__init__()
         
         self.embedding_dim = embedding_dim
@@ -277,17 +284,27 @@ class TransformerEncoder(nn.Module):
             nhead=n_heads,
             dim_feedforward=hidden_dim,
             dropout=dropout,
-            batch_first=True
+            batch_first=True,
+            activation='gelu' # UPDATE: GELU activation for better gradient flow
         )
         
         # Stack multiple encoder layers
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        # NEW: Added Final LayerNorm for training stability
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers,norm=nn.LayerNorm(embedding_dim))
         
         # Fully connected output layer
         self.fc = nn.Linear(embedding_dim, output_dim)
         
         # Dropout
         self.dropout = nn.Dropout(dropout)
+
+        self._init_weights() # NEW: Better weight initialization
+    
+    def _init_weights(self):
+        # Xavier Initialization for deep Transformers
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
         
     def forward(self, input_ids, attention_mask=None):
         # text shape: (batch_size, seq_len)
@@ -374,9 +391,10 @@ def load_and_preprocess_data(data_path, data_type='train', model_type='lstm', sh
         return dataloader 
 
 
-def train(model, iterator, optimizer, criterion, device, model_type='lstm'):
+# UPDATES 
+# CHANGE THIS LINE:
+def train(model, iterator, optimizer, criterion, device, model_type, scheduler=None, clip=1.0): # Added clip=1.0
     model.train()
-    
     epoch_loss = 0
     epoch_acc = 0
     
@@ -385,38 +403,38 @@ def train(model, iterator, optimizer, criterion, device, model_type='lstm'):
         
         if model_type == 'transformer':
             text, attention_mask, labels = batch
-            text = text.to(device)
-            attention_mask = attention_mask.to(device)
+            text, attention_mask = text.to(device), attention_mask.to(device)
             labels = labels.to(device).float()
-            
             predictions = model(text, attention_mask)
         else:
             text, labels = batch
             text = text.to(device)
             labels = labels.to(device).float()
-            
             predictions = model(text)
         
         loss = criterion(predictions, labels)
+        loss.backward()
+
+        # FIXED THIS: Corrected the library call and the variable name
+        if clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+
+        optimizer.step()
+
+        if scheduler is not None:
+            scheduler.step()
         
         rounded_preds = torch.round(torch.sigmoid(predictions))
         correct = (rounded_preds == labels).float()
         acc = correct.sum() / len(labels)
-        
-        loss.backward()
-        optimizer.step()
         
         epoch_loss += loss.item()
         epoch_acc += acc.item()
     
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
-def evaluate(model, iterator, criterion, device, model_type='lstm'):
-    """
-    Evaluate the model
-    """
+def evaluate(model, iterator, criterion, device, model_type='lstm'): # Add model_type
     model.eval()
-    
     epoch_loss = 0
     epoch_acc = 0
     
@@ -424,20 +442,16 @@ def evaluate(model, iterator, criterion, device, model_type='lstm'):
         for batch in tqdm(iterator, desc='Evaluating', leave=False):
             if model_type == 'transformer':
                 text, attention_mask, labels = batch
-                text = text.to(device)
-                attention_mask = attention_mask.to(device)
+                text, attention_mask = text.to(device), attention_mask.to(device)
                 labels = labels.to(device).float()
-                
                 predictions = model(text, attention_mask)
             else:
                 text, labels = batch
                 text = text.to(device)
                 labels = labels.to(device).float()
-                
                 predictions = model(text)
             
             loss = criterion(predictions, labels)
-            
             rounded_preds = torch.round(torch.sigmoid(predictions))
             correct = (rounded_preds == labels).float()
             acc = correct.sum() / len(labels)
@@ -446,7 +460,6 @@ def evaluate(model, iterator, criterion, device, model_type='lstm'):
             epoch_acc += acc.item()
     
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
-
 
 def main():
     # Parse arguments
@@ -588,8 +601,13 @@ def main():
     print(f"Trainable parameters: {trainable_params:,}")
     
     # Optimizer and loss
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    # NEW: AdamW optimizer (better weight decay for Transformers)
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=0.01)
     criterion = nn.BCEWithLogitsLoss()
+
+    # NEW: OneCycleLR Scheduler (includes Warmup and Annealing)
+    total_steps = len(train_loader) * args.epochs
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.learning_rate, total_steps=total_steps)
     
     # Training loop
     print(f"\n{'='*60}")
@@ -610,7 +628,7 @@ def main():
         print("-" * 40)
         
         # Train
-        train_loss, train_acc = train(model, train_loader, optimizer, criterion, device, args.model)
+        train_loss, train_acc = train(model, train_loader, optimizer, criterion, device, args.model, scheduler)
         
         # Evaluate
         valid_loss, valid_acc = evaluate(model, val_loader, criterion, device, args.model)
