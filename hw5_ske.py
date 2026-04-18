@@ -266,8 +266,8 @@ class PositionalEncoding(nn.Module):
 
 # Transformer Encoder
 class TransformerEncoder(nn.Module):
-    def __init__(self, vocab_size=25000, embedding_dim=512, hidden_dim=2048, 
-                 output_dim=1, n_layers=6, n_heads=8, dropout=0.1, pad_idx=0, max_len=512 + 1):
+    def __init__(self, vocab_size=25000, embedding_dim=256, hidden_dim=1024, 
+                 output_dim=1, n_layers=4, n_heads=8, dropout=0.2, pad_idx=0, max_len=512 + 1):
         super(TransformerEncoder, self).__init__()
         
         self.embedding_dim = embedding_dim
